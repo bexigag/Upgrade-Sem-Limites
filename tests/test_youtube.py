@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from src.youtube import parse_youtube_url, extract_video_id, get_transcript, get_playlist_video_ids
+from src.youtube import parse_youtube_url, extract_video_id, get_transcript, get_playlist_video_ids, get_video_metadata
 
 
 def test_extract_video_id_standard_url():
@@ -105,3 +105,26 @@ def test_get_playlist_video_ids():
         {"id": "video2", "title": "Interview 2"},
         {"id": "video3", "title": "Interview 3"},
     ]
+
+
+def test_get_video_metadata():
+    mock_info = {
+        "title": "CEO talks about AI strategy",
+        "description": "John Smith, CEO of TechCorp, discusses...",
+        "uploader": "TechCorp Channel",
+        "upload_date": "20260215",
+        "webpage_url": "https://www.youtube.com/watch?v=abc123",
+    }
+
+    with patch("src.youtube.YoutubeDL") as mock_ydl_class:
+        mock_ydl = MagicMock()
+        mock_ydl.extract_info.return_value = mock_info
+        mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl_class.return_value = mock_ydl
+
+        result = get_video_metadata("abc123")
+
+    assert result["title"] == "CEO talks about AI strategy"
+    assert result["description"] == "John Smith, CEO of TechCorp, discusses..."
+    assert result["url"] == "https://www.youtube.com/watch?v=abc123"

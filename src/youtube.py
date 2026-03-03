@@ -53,3 +53,21 @@ def get_playlist_video_ids(playlist_id: str) -> list[dict]:
         )
 
     return [{"id": entry["id"], "title": entry.get("title", "")} for entry in info["entries"]]
+
+
+def get_video_metadata(video_id: str) -> dict:
+    ydl_opts = {"quiet": True, "no_warnings": True}
+
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(
+            f"https://www.youtube.com/watch?v={video_id}",
+            download=False,
+        )
+
+    return {
+        "title": info.get("title", ""),
+        "description": info.get("description", ""),
+        "uploader": info.get("uploader", ""),
+        "upload_date": info.get("upload_date", ""),
+        "url": info.get("webpage_url", f"https://www.youtube.com/watch?v={video_id}"),
+    }
