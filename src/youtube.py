@@ -1,6 +1,8 @@
 import re
 from urllib.parse import urlparse, parse_qs
 
+from youtube_transcript_api import YouTubeTranscriptApi
+
 
 def extract_video_id(url: str) -> str:
     parsed = urlparse(url)
@@ -29,3 +31,12 @@ def parse_youtube_url(url: str) -> dict:
 
     video_id = extract_video_id(url)
     return {"type": "video", "video_id": video_id}
+
+
+def get_transcript(video_id: str) -> str | None:
+    try:
+        api = YouTubeTranscriptApi()
+        transcript = api.fetch(video_id, languages=["pt", "en", "es"])
+        return " ".join(snippet.text for snippet in transcript)
+    except Exception:
+        return None
