@@ -1,0 +1,23 @@
+[project]
+name = "ceo-video-transcriber"
+version = "0.1.0"
+description = "Transcribe and analyze CEO YouTube interviews for strategic intelligence"
+requires-python = ">=3.11"
+dependencies = [
+    "youtube-transcript-api>=1.0.0",
+    "yt-dlp>=2024.0.0",
+    "anthropic>=0.40.0",
+    "notion-client>=2.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+whisper = [
+    "openai-whisper>=20231117",
+]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+ceo-transcriber = "src.main:main"
