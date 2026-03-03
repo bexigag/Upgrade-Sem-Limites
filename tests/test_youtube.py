@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from src.youtube import parse_youtube_url, extract_video_id, get_transcript
+from src.youtube import parse_youtube_url, extract_video_id, get_transcript, get_playlist_video_ids
 
 
 def test_extract_video_id_standard_url():
@@ -80,3 +80,28 @@ def test_get_transcript_returns_none_on_failure():
         result = get_transcript("fake_video_id")
 
     assert result is None
+
+
+def test_get_playlist_video_ids():
+    mock_info = {
+        "entries": [
+            {"id": "video1", "title": "Interview 1"},
+            {"id": "video2", "title": "Interview 2"},
+            {"id": "video3", "title": "Interview 3"},
+        ]
+    }
+
+    with patch("src.youtube.YoutubeDL") as mock_ydl_class:
+        mock_ydl = MagicMock()
+        mock_ydl.extract_info.return_value = mock_info
+        mock_ydl.__enter__ = MagicMock(return_value=mock_ydl)
+        mock_ydl.__exit__ = MagicMock(return_value=False)
+        mock_ydl_class.return_value = mock_ydl
+
+        result = get_playlist_video_ids("PLtest123")
+
+    assert result == [
+        {"id": "video1", "title": "Interview 1"},
+        {"id": "video2", "title": "Interview 2"},
+        {"id": "video3", "title": "Interview 3"},
+    ]

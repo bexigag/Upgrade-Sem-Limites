@@ -2,6 +2,7 @@ import re
 from urllib.parse import urlparse, parse_qs
 
 from youtube_transcript_api import YouTubeTranscriptApi
+from yt_dlp import YoutubeDL
 
 
 def extract_video_id(url: str) -> str:
@@ -40,3 +41,15 @@ def get_transcript(video_id: str) -> str | None:
         return " ".join(snippet.text for snippet in transcript)
     except Exception:
         return None
+
+
+def get_playlist_video_ids(playlist_id: str) -> list[dict]:
+    ydl_opts = {"extract_flat": True, "quiet": True}
+
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(
+            f"https://www.youtube.com/playlist?list={playlist_id}",
+            download=False,
+        )
+
+    return [{"id": entry["id"], "title": entry.get("title", "")} for entry in info["entries"]]
