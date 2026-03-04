@@ -29,12 +29,25 @@ def create_database(token: str, parent_page_id: str) -> str:
     notion = Client(auth=token)
 
     database = notion.databases.create(
-        parent={"page_id": parent_page_id},
+        parent={"type": "page_id", "page_id": parent_page_id},
         title=[{"type": "text", "text": {"content": "CEO Video Transcriber"}}],
+    )
+
+    db_id = database["id"]
+
+    # API 2025-09-03: properties must be set on the data source
+    data_source_id = database["data_sources"][0]["id"]
+    notion.data_sources.update(
+        data_source_id=data_source_id,
         properties=SCHEMA,
     )
 
-    return database["id"]
+    return db_id
+
+
+def _get_data_source_id(notion: Client, database_id: str) -> str:
+    db = notion.databases.retrieve(database_id=database_id)
+    return db["data_sources"][0]["id"]
 
 
 def _rich_text(content: str) -> dict:
@@ -49,6 +62,7 @@ def add_row(
     status: str = "Concluído",
 ) -> str:
     notion = Client(auth=token)
+    data_source_id = _get_data_source_id(notion, database_id)
 
     properties = {
         "Link da Entrevista": {"url": video_url},
@@ -78,7 +92,7 @@ def add_row(
         }
 
     page = notion.pages.create(
-        parent={"database_id": database_id},
+        parent={"type": "data_source_id", "data_source_id": data_source_id},
         properties=properties,
     )
 

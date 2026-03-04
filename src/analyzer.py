@@ -41,14 +41,18 @@ def analyze_transcript(transcript: str, metadata: dict, api_key: str) -> dict | 
         contents=build_prompt(transcript, metadata),
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
-            max_output_tokens=2048,
+            max_output_tokens=8192,
         ),
     )
 
     try:
-        response_text = response.text
+        response_text = response.text.strip()
+        # Remove markdown code block wrapping (```json ... ```)
         if response_text.startswith("```"):
-            response_text = response_text.split("\n", 1)[1].rsplit("```", 1)[0]
+            lines = response_text.split("\n")
+            # Remove first line (```json) and last line (```)
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            response_text = "\n".join(lines)
         return json.loads(response_text)
     except (json.JSONDecodeError, IndexError, AttributeError):
         return None
