@@ -1,3 +1,4 @@
+import time
 import requests
 import streamlit as st
 
@@ -104,12 +105,24 @@ def process_single_video(video_id: str, gemini_key: str, notion_token: str, data
     return True, analysis, page_id
 
 
+GEMINI_WAIT_SECONDS = 15  # 5 RPM limit = 1 request per 12s, using 15s for safety
+GEMINI_DAILY_LIMIT = 20
+
+
 def process_playlist(playlist_id: str, gemini_key: str, notion_token: str, database_id: str):
     """Process all videos in a playlist."""
     with st.spinner("A obter lista de videos da playlist..."):
         videos = get_playlist_video_ids(playlist_id)
 
-    st.info(f"Encontrados **{len(videos)}** videos na playlist.")
+    total = len(videos)
+    if total > GEMINI_DAILY_LIMIT:
+        st.warning(
+            f"A playlist tem **{total}** videos mas o limite diario do Gemini e **{GEMINI_DAILY_LIMIT}**. "
+            f"Vao ser processados apenas os primeiros {GEMINI_DAILY_LIMIT}."
+        )
+        videos = videos[:GEMINI_DAILY_LIMIT]
+
+    st.info(f"A processar **{len(videos)}** videos (~{len(videos) * GEMINI_WAIT_SECONDS // 60} minutos estimados).")
 
     progress = st.progress(0, text="A iniciar...")
     success_count = 0
@@ -117,7 +130,7 @@ def process_playlist(playlist_id: str, gemini_key: str, notion_token: str, datab
     results = []
 
     for i, video in enumerate(videos):
-        progress.progress((i) / len(videos), text=f"Video {i + 1}/{len(videos)}: {video['title'][:50]}")
+        progress.progress(i / len(videos), text=f"Video {i + 1}/{len(videos)}: {video['title'][:50]}")
 
         st.subheader(f"Video {i + 1}: {video['title'][:80]}")
         ok, analysis, page_id = process_single_video(video["id"], gemini_key, notion_token, database_id)
@@ -128,6 +141,14 @@ def process_playlist(playlist_id: str, gemini_key: str, notion_token: str, datab
         else:
             error_count += 1
             results.append({"video": video["title"], "status": "Erro", "nome": "—"})
+
+        # Wait between videos to respect Gemini rate limits (5 RPM)
+        if i < len(videos) - 1:
+            wait_msg = st.empty()
+            for sec in range(GEMINI_WAIT_SECONDS, 0, -1):
+                wait_msg.info(f"A aguardar {sec}s antes do proximo video (limite Gemini)...")
+                time.sleep(1)
+            wait_msg.empty()
 
     progress.progress(1.0, text="Concluido!")
 
