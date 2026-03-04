@@ -88,6 +88,7 @@ def process_single_video(video_id: str, gemini_key: str, notion_token: str, data
 
         st.write("A analisar com Gemini...")
         gemini_keys = [k.strip() for k in gemini_key.split(",") if k.strip()]
+        gemini_keys.reverse()  # Use last key first (first key reserved for Make.com)
         analysis = None
         for i, key in enumerate(gemini_keys):
             try:
