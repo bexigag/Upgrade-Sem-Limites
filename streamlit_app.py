@@ -263,6 +263,7 @@ def process_single_episode(episode: dict, gemini_key: str, notion_token: str, da
 
 
 GEMINI_WAIT_SECONDS = 20  # 5 RPM limit = 1 request per 12s, using 20s for safety
+EPISODE_ESTIMATE_MINUTES = 3  # download + transcription + analysis + wait
 
 
 # --- Main UI ---
@@ -309,7 +310,7 @@ def main_ui():
             return
 
         selected = episodes[from_idx:to_idx + 1]
-        st.info(f"**{len(selected)}** episodios selecionados (~{len(selected) * GEMINI_WAIT_SECONDS // 60} minutos estimados).")
+        st.info(f"**{len(selected)}** episodios selecionados (~{len(selected) * EPISODE_ESTIMATE_MINUTES} minutos estimados).")
 
         gemini_key = st.secrets["GEMINI_API_KEY"]
         notion_token = st.secrets["NOTION_TOKEN"]
@@ -406,7 +407,7 @@ def main_ui():
                 return
 
             selected = videos[from_idx:to_idx + 1]
-            st.info(f"**{len(selected)}** videos selecionados (~{len(selected) * GEMINI_WAIT_SECONDS // 60} minutos estimados).")
+            st.info(f"**{len(selected)}** videos selecionados (~{len(selected)} minutos estimados).")
 
             if st.button("Processar", type="primary"):
                 progress = st.progress(0, text="A iniciar...")
