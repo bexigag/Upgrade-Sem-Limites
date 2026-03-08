@@ -5,6 +5,8 @@ SCHEMA = {
     "Nome": {"title": {}},
     "Cargo": {"rich_text": {}},
     "Link da Entrevista": {"url": {}},
+    "Data": {"date": {}},
+    "Potencial Cliente": {"rich_text": {}},
     "Usa IA": {"rich_text": {}},
     "Vai Usar IA": {"rich_text": {}},
     "Inovação": {"rich_text": {}},
@@ -54,12 +56,26 @@ def _rich_text(content: str) -> dict:
     return {"rich_text": [{"type": "text", "text": {"content": content[:2000]}}]}
 
 
+def _parse_date(date_str: str) -> str | None:
+    """Parse date string to ISO format (YYYY-MM-DD) for Notion."""
+    if not date_str:
+        return None
+    # ISO format: 2026-03-02T06:05:00Z
+    if "T" in date_str:
+        return date_str[:10]
+    # YouTube format: YYYYMMDD
+    if len(date_str) == 8 and date_str.isdigit():
+        return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+    return None
+
+
 def add_row(
     token: str,
     database_id: str,
     video_url: str,
     analysis: dict | None,
     status: str = "Concluído",
+    date: str = "",
 ) -> str:
     notion = Client(auth=token)
     data_source_id = _get_data_source_id(notion, database_id)
@@ -68,6 +84,10 @@ def add_row(
         "Link da Entrevista": {"url": video_url},
         "Status": {"select": {"name": status}},
     }
+
+    parsed_date = _parse_date(date)
+    if parsed_date:
+        properties["Data"] = {"date": {"start": parsed_date}}
 
     if analysis:
         properties["Nome"] = {
@@ -80,6 +100,7 @@ def add_row(
         properties["Estratégia Digital"] = _rich_text(analysis.get("estrategia_digital", ""))
         properties["Principais Desafios"] = _rich_text(analysis.get("principais_desafios", ""))
         properties["Resumo Estratégico"] = _rich_text(analysis.get("resumo_estrategico", ""))
+        properties["Potencial Cliente"] = _rich_text(analysis.get("potencial_cliente", ""))
 
         techs = analysis.get("tecnologias_mencionadas", [])
         if isinstance(techs, list):

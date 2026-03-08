@@ -135,6 +135,7 @@ def process_single_video(video_id: str, gemini_key: str, notion_token: str, data
                 video_url=metadata["url"],
                 analysis=None,
                 status="Erro",
+                date=metadata.get("upload_date", ""),
             )
             status.update(label="Erro na transcricao", state="error")
             return False, None, page_id
@@ -162,6 +163,7 @@ def process_single_video(video_id: str, gemini_key: str, notion_token: str, data
                 video_url=metadata["url"],
                 analysis=None,
                 status="Erro",
+                date=metadata.get("upload_date", ""),
             )
             status.update(label="Erro na analise", state="error")
             return False, None, page_id
@@ -173,6 +175,7 @@ def process_single_video(video_id: str, gemini_key: str, notion_token: str, data
                 database_id=database_id,
                 video_url=metadata["url"],
                 analysis=analysis,
+                date=metadata.get("upload_date", ""),
             )
         except Exception as e:
             st.error(f"Erro ao escrever no Notion: {e}")
@@ -216,6 +219,7 @@ def process_single_episode(episode: dict, gemini_key: str, notion_token: str, da
                 video_url=metadata["url"],
                 analysis=None,
                 status="Erro",
+                date=metadata.get("upload_date", ""),
             )
             status.update(label="Erro na transcricao", state="error")
             return False, None, page_id
@@ -241,6 +245,7 @@ def process_single_episode(episode: dict, gemini_key: str, notion_token: str, da
                 video_url=metadata["url"],
                 analysis=None,
                 status="Erro",
+                date=metadata.get("upload_date", ""),
             )
             status.update(label="Erro na analise", state="error")
             return False, None, page_id
@@ -252,6 +257,7 @@ def process_single_episode(episode: dict, gemini_key: str, notion_token: str, da
                 database_id=database_id,
                 video_url=metadata["url"],
                 analysis=analysis,
+                date=metadata.get("upload_date", ""),
             )
         except Exception as e:
             st.error(f"Erro ao escrever no Notion: {e}")

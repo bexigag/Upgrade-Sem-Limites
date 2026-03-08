@@ -3,7 +3,9 @@ from google import genai
 from google.genai import types
 
 
-SYSTEM_PROMPT = """És um analista de inteligência estratégica. Analisa transcrições de entrevistas de CEOs e extrai informação estruturada, para a nossa empresa que implementa AI e faz software, tirar vantagem.
+SYSTEM_PROMPT = """És um analista de inteligência estratégica. Analisa transcrições de entrevistas de CEOs e extrai informação estruturada.
+
+A nossa empresa implementa soluções de AI, ensina a usar AI e otimiza processos com AI. O objetivo é identificar oportunidades de negócio nestas entrevistas.
 
 Responde APENAS com um objeto JSON válido, sem texto adicional. O JSON deve ter exatamente estes campos:
 
@@ -16,8 +18,11 @@ Responde APENAS com um objeto JSON válido, sem texto adicional. O JSON deve ter
   "estrategia_digital": "Insights sobre estratégia digital",
   "tecnologias_mencionadas": ["lista", "de", "tecnologias", "os elementos nao podem ter virgulas"],
   "principais_desafios": "Desafios principais",
-  "resumo_estrategico": "Resumo conciso (2-3 frases)"
+  "resumo_estrategico": "Resumo conciso (2-3 frases)",
+  "potencial_cliente": "N/10 (Quente/Morno/Frio) - justificação breve do potencial desta empresa como cliente para os nossos serviços de AI"
 }
+
+Para o potencial_cliente, avalia considerando: se já usa AI (pode querer mais), se quer usar AI (oportunidade direta), se tem desafios que AI resolve, se mencionou orçamento ou parcerias tecnológicas.
 
 Se algum campo não puder ser determinado, usa "Não mencionado".
 Responde em Português."""
