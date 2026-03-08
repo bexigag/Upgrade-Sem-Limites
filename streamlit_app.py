@@ -326,6 +326,7 @@ def main_ui():
             progress = st.progress(0, text="A iniciar...")
             success_count = 0
             error_count = 0
+            consecutive_errors = 0
             results = []
 
             for i, episode in enumerate(selected):
@@ -336,10 +337,16 @@ def main_ui():
 
                 if ok:
                     success_count += 1
+                    consecutive_errors = 0
                     results.append({"episodio": episode["title"][:50], "status": "OK", "nome": analysis.get("nome", "—")})
                 else:
                     error_count += 1
+                    consecutive_errors += 1
                     results.append({"episodio": episode["title"][:50], "status": "Erro", "nome": "—"})
+
+                if consecutive_errors >= 3:
+                    st.error(f"3 erros consecutivos — a parar. Provavelmente o limite do Gemini foi atingido. Restam {len(selected) - i - 1} episodios por processar.")
+                    break
 
                 if i < len(selected) - 1:
                     wait_msg = st.empty()
@@ -419,6 +426,7 @@ def main_ui():
                 progress = st.progress(0, text="A iniciar...")
                 success_count = 0
                 error_count = 0
+                consecutive_errors = 0
                 results = []
 
                 for i, video in enumerate(selected):
@@ -429,10 +437,16 @@ def main_ui():
 
                     if ok:
                         success_count += 1
+                        consecutive_errors = 0
                         results.append({"video": video["title"][:50], "status": "OK", "nome": analysis.get("nome", "—")})
                     else:
                         error_count += 1
+                        consecutive_errors += 1
                         results.append({"video": video["title"][:50], "status": "Erro", "nome": "—"})
+
+                    if consecutive_errors >= 3:
+                        st.error(f"3 erros consecutivos — a parar. Provavelmente o limite do Gemini foi atingido. Restam {len(selected) - i - 1} videos por processar.")
+                        break
 
                     if i < len(selected) - 1:
                         wait_msg = st.empty()
