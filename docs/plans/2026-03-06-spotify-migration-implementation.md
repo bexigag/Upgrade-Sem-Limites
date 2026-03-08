@@ -1,18 +1,16 @@
-# Spotify/Podcast Support + Range Selector Implementation Plan
+# Podcast Support + Range Selector Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add podcast support via RSS feeds with Supadata transcription, plus a range selector for both platforms.
+**Goal:** Add "O CEO e o Limite" podcast support via iTunes API + Supadata transcription, plus range selector for both platforms.
 
-**Architecture:** RSS feeds provide episode listings and direct audio URLs. Supadata transcribes audio files by URL (no download needed). Streamlit UI gets a platform toggle (Podcast RSS / YouTube), range selector with two dropdowns, and a new processing flow for podcast episodes.
+**Architecture:** iTunes Lookup API provides all 167 episodes with direct MP3 URLs (free, no auth). Supadata transcribes audio by URL (no download). Streamlit UI gets platform toggle and range selector with two dropdowns.
 
-**Tech Stack:** Python, Streamlit, feedparser (RSS), Supadata API, Gemini, Notion API
-
-**Design note:** Research showed that auto-discovering RSS feeds from Spotify URLs is unreliable (spotifeed is dead, SpotifyScraper doesn't support podcasts, Spotify API requires Premium). The user pastes the RSS feed URL directly. Most podcasts publish their RSS feed on their website or hosting platform.
+**Tech Stack:** Python, Streamlit, iTunes Lookup API, Supadata API, Gemini, Notion API
 
 ---
 
-### Task 1: Create `src/podcast.py` - RSS feed parser
+### Task 1: Create `src/podcast.py` - iTunes API episode fetcher
 
 **Files:**
 - Create: `src/podcast.py`
@@ -22,23 +20,77 @@
 
 ```python
 # tests/test_podcast.py
-import pytest
-from src.podcast import parse_podcast_url, get_show_episodes
+from unittest.mock import patch, MagicMock
+from src.podcast import get_ceo_episodes, get_episode_metadata
+
+ITUNES_PODCAST_ID = "1662139036"
 
 
-def test_parse_rss_url():
-    result = parse_podcast_url("https://feeds.example.com/podcast.xml")
-    assert result == {"type": "show", "rss_url": "https://feeds.example.com/podcast.xml"}
+def test_get_ceo_episodes_returns_list():
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = {
+        "resultCount": 3,
+        "results": [
+            {"wrapperType": "collection", "collectionName": "O CEO e o limite"},
+            {
+                "wrapperType": "podcastEpisode",
+                "trackName": "Carlos Ribeiro, CEO da Takeda",
+                "episodeUrl": "https://traffic.omny.fm/audio1.mp3",
+                "releaseDate": "2026-03-02T06:05:00Z",
+                "trackViewUrl": "https://podcasts.apple.com/episode1",
+            },
+            {
+                "wrapperType": "podcastEpisode",
+                "trackName": "Filipa Pinto Coelho",
+                "episodeUrl": "https://traffic.omny.fm/audio2.mp3",
+                "releaseDate": "2026-02-23T06:05:00Z",
+                "trackViewUrl": "https://podcasts.apple.com/episode2",
+            },
+        ],
+    }
+
+    with patch("src.podcast.requests.get", return_value=mock_resp):
+        episodes = get_ceo_episodes()
+
+    assert len(episodes) == 2
+    assert episodes[0]["title"] == "Carlos Ribeiro, CEO da Takeda"
+    assert episodes[0]["audio_url"] == "https://traffic.omny.fm/audio1.mp3"
 
 
-def test_parse_rss_url_strips_whitespace():
-    result = parse_podcast_url("  https://feeds.example.com/podcast.xml  ")
-    assert result == {"type": "show", "rss_url": "https://feeds.example.com/podcast.xml"}
+def test_get_ceo_episodes_skips_collection_entry():
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+    mock_resp.json.return_value = {
+        "resultCount": 2,
+        "results": [
+            {"wrapperType": "collection", "collectionName": "O CEO e o limite"},
+            {
+                "wrapperType": "podcastEpisode",
+                "trackName": "Episode 1",
+                "episodeUrl": "https://example.com/ep1.mp3",
+                "releaseDate": "2026-01-01T00:00:00Z",
+                "trackViewUrl": "https://example.com/ep1",
+            },
+        ],
+    }
+
+    with patch("src.podcast.requests.get", return_value=mock_resp):
+        episodes = get_ceo_episodes()
+
+    assert len(episodes) == 1
 
 
-def test_parse_empty_url_raises():
-    with pytest.raises(ValueError):
-        parse_podcast_url("")
+def test_get_episode_metadata():
+    episode = {
+        "title": "Carlos Ribeiro, CEO da Takeda",
+        "audio_url": "https://traffic.omny.fm/audio1.mp3",
+        "published": "2026-03-02T06:05:00Z",
+        "link": "https://podcasts.apple.com/episode1",
+    }
+    metadata = get_episode_metadata(episode)
+    assert metadata["title"] == "Carlos Ribeiro, CEO da Takeda"
+    assert metadata["url"] == "https://podcasts.apple.com/episode1"
 ```
 
 **Step 2: Run tests to verify they fail**
@@ -50,49 +102,49 @@ Expected: FAIL
 
 ```python
 # src/podcast.py
-import feedparser
+import requests
+
+ITUNES_PODCAST_ID = "1662139036"
 
 
-def parse_podcast_url(url: str) -> dict:
-    url = url.strip()
-    if not url:
-        raise ValueError("URL vazio")
-    return {"type": "show", "rss_url": url}
-
-
-def get_show_episodes(rss_url: str) -> list[dict]:
-    feed = feedparser.parse(rss_url)
-
-    if feed.bozo and not feed.entries:
-        raise ValueError(f"Nao foi possivel ler o RSS feed: {rss_url}")
+def get_ceo_episodes() -> list[dict]:
+    """Fetch all episodes of 'O CEO e o Limite' from iTunes Lookup API."""
+    resp = requests.get(
+        "https://itunes.apple.com/lookup",
+        params={
+            "id": ITUNES_PODCAST_ID,
+            "media": "podcast",
+            "entity": "podcastEpisode",
+            "limit": 300,
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
 
     episodes = []
-    for entry in feed.entries:
-        audio_url = None
-        for link in entry.get("links", []):
-            if link.get("type", "").startswith("audio/") or link.get("rel") == "enclosure":
-                audio_url = link.get("href")
-                break
+    for item in data.get("results", []):
+        if item.get("wrapperType") != "podcastEpisode":
+            continue
+        audio_url = item.get("episodeUrl")
         if not audio_url:
-            for enc in entry.get("enclosures", []):
-                audio_url = enc.get("href")
-                break
-
+            continue
         episodes.append({
-            "title": entry.get("title", "Sem titulo"),
-            "published": entry.get("published", ""),
+            "title": item.get("trackName", "Sem titulo"),
             "audio_url": audio_url,
-            "link": entry.get("link", ""),
+            "published": item.get("releaseDate", ""),
+            "link": item.get("trackViewUrl", ""),
         })
 
     return episodes
 
 
 def get_episode_metadata(episode: dict) -> dict:
+    """Format episode data for the analyzer module."""
     return {
         "title": episode.get("title", "Sem titulo"),
         "description": "",
-        "uploader": "",
+        "uploader": "O CEO e o Limite",
         "upload_date": episode.get("published", ""),
         "url": episode.get("link", episode.get("audio_url", "")),
     }
@@ -107,22 +159,20 @@ Expected: PASS
 
 ```bash
 git add src/podcast.py tests/test_podcast.py
-git commit -m "feat: add podcast RSS feed parser"
+git commit -m "feat: add podcast module with iTunes API integration"
 ```
 
 ---
 
-### Task 2: Add Supadata file URL transcription
+### Task 2: Add Supadata file URL transcription function
 
 **Files:**
 - Modify: `streamlit_app.py` (add new function after `get_transcript_supadata`)
 
-**Step 1: Write failing test**
+**Step 1: Write failing tests**
 
 ```python
 # tests/test_podcast.py (append to existing)
-from unittest.mock import patch, MagicMock
-
 
 def test_get_transcript_supadata_file_success():
     from streamlit_app import get_transcript_supadata_file
@@ -131,10 +181,9 @@ def test_get_transcript_supadata_file_success():
     mock_resp.status_code = 200
     mock_resp.json.return_value = {"content": "transcribed text here", "lang": "pt"}
 
-    with patch("streamlit_app.requests.get", return_value=mock_resp) as mock_get:
+    with patch("streamlit_app.requests.get", return_value=mock_resp):
         result = get_transcript_supadata_file("https://example.com/ep.mp3", "fake-key")
         assert result == "transcribed text here"
-        mock_get.assert_called_once()
 
 
 def test_get_transcript_supadata_file_async_job():
@@ -152,16 +201,28 @@ def test_get_transcript_supadata_file_async_job():
         with patch("streamlit_app.time.sleep"):
             result = get_transcript_supadata_file("https://example.com/ep.mp3", "fake-key")
             assert result == "async result"
+
+
+def test_get_transcript_supadata_file_empty_returns_none():
+    from streamlit_app import get_transcript_supadata_file
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"content": "   ", "lang": "pt"}
+
+    with patch("streamlit_app.requests.get", return_value=mock_resp):
+        result = get_transcript_supadata_file("https://example.com/ep.mp3", "fake-key")
+        assert result is None
 ```
 
 **Step 2: Run tests to verify they fail**
 
 Run: `python -m pytest tests/test_podcast.py::test_get_transcript_supadata_file_success -v`
-Expected: FAIL (function doesn't exist)
+Expected: FAIL
 
 **Step 3: Write implementation**
 
-Add this function to `streamlit_app.py` after the existing `get_transcript_supadata` function:
+Add to `streamlit_app.py` after the existing `get_transcript_supadata` function (line 33):
 
 ```python
 def get_transcript_supadata_file(audio_url: str, api_key: str, max_polls: int = 30) -> str | None:
@@ -215,14 +276,14 @@ git commit -m "feat: add Supadata file URL transcription with async polling"
 
 ---
 
-### Task 3: Add `process_single_episode` for podcast episodes
+### Task 3: Add `process_single_episode` function
 
 **Files:**
-- Modify: `streamlit_app.py` (add new function)
+- Modify: `streamlit_app.py` (add new function after `process_single_video`)
 
 **Step 1: Write the function**
 
-Add to `streamlit_app.py` after `process_single_video`:
+Add to `streamlit_app.py` after `process_single_video` (after line 129):
 
 ```python
 def process_single_episode(episode: dict, gemini_key: str, notion_token: str, database_id: str):
@@ -311,63 +372,46 @@ git commit -m "feat: add process_single_episode for podcast episodes"
 
 ---
 
-### Task 4: Rewrite the main UI with platform selector and range selector
+### Task 4: Rewrite main UI with platform selector and range selector
 
 **Files:**
-- Modify: `streamlit_app.py` (replace the `# --- Main UI ---` section, lines 185-215)
+- Modify: `streamlit_app.py` (replace everything from `# --- Main UI ---` line 185 to end of file)
 
-**Step 1: Replace the main UI section**
+**Step 1: Delete the old `process_playlist` function (lines 136-183)**
 
-Replace everything from `# --- Main UI ---` (line 185) to end of file with:
+This function is replaced by the range selector logic in the main UI. Remove it entirely.
+
+**Step 2: Replace the main UI section**
+
+Replace everything from `# --- Main UI ---` to end of file with:
 
 ```python
 # --- Main UI ---
 
 st.title("CEO Video Transcriber")
 
-platform = st.radio("Plataforma", ["Podcast (RSS)", "YouTube"], horizontal=True)
+platform = st.radio("Plataforma", ["O CEO e o Limite", "YouTube"], horizontal=True)
 
-if platform == "Podcast (RSS)":
-    st.markdown("Cola o URL do RSS feed do podcast. Podes encontrar o RSS no site do podcast ou na plataforma de hosting.")
-    url = st.text_input("URL do RSS Feed", placeholder="https://feeds.example.com/podcast.xml")
-else:
-    st.markdown("Cola um link do YouTube (video ou playlist) para analisar entrevistas de CEOs.")
-    url = st.text_input("URL do YouTube", placeholder="https://www.youtube.com/watch?v=...")
+if platform == "O CEO e o Limite":
+    st.markdown("Podcast da Catia Mateus no Expresso. Os episodios sao carregados automaticamente.")
 
-if not url:
-    st.stop()
-
-gemini_key = st.secrets["GEMINI_API_KEY"]
-notion_token = st.secrets["NOTION_TOKEN"]
-database_id = st.secrets["NOTION_DATABASE_ID"]
-
-# --- Podcast (RSS) flow ---
-if platform == "Podcast (RSS)":
-    from src.podcast import parse_podcast_url, get_show_episodes, get_episode_metadata
-
-    try:
-        parsed = parse_podcast_url(url)
-    except ValueError as e:
-        st.error(f"URL invalido: {e}")
-        st.stop()
-
-    if "episodes" not in st.session_state or st.session_state.get("rss_url") != url:
+    if "ceo_episodes" not in st.session_state:
         if st.button("Carregar episodios"):
-            with st.spinner("A carregar episodios do RSS feed..."):
+            with st.spinner("A carregar episodios..."):
+                from src.podcast import get_ceo_episodes
                 try:
-                    episodes = get_show_episodes(parsed["rss_url"])
+                    episodes = get_ceo_episodes()
                 except Exception as e:
-                    st.error(f"Erro ao ler o RSS feed: {e}")
+                    st.error(f"Erro ao carregar episodios: {e}")
                     st.stop()
             if not episodes:
-                st.error("Nenhum episodio encontrado no feed.")
+                st.error("Nenhum episodio encontrado.")
                 st.stop()
-            st.session_state.episodes = episodes
-            st.session_state.rss_url = url
+            st.session_state.ceo_episodes = episodes
             st.rerun()
         st.stop()
 
-    episodes = st.session_state.episodes
+    episodes = st.session_state.ceo_episodes
     st.success(f"**{len(episodes)}** episodios encontrados.")
 
     options = [f"{i + 1}. {ep['title'][:80]}" for i, ep in enumerate(episodes)]
@@ -385,6 +429,10 @@ if platform == "Podcast (RSS)":
 
     selected = episodes[from_idx:to_idx + 1]
     st.info(f"**{len(selected)}** episodios selecionados (~{len(selected) * GEMINI_WAIT_SECONDS // 60} minutos estimados).")
+
+    gemini_key = st.secrets["GEMINI_API_KEY"]
+    notion_token = st.secrets["NOTION_TOKEN"]
+    database_id = st.secrets["NOTION_DATABASE_ID"]
 
     if st.button("Processar", type="primary"):
         progress = st.progress(0, text="A iniciar...")
@@ -418,8 +466,17 @@ if platform == "Podcast (RSS)":
         st.success(f"**{success_count}** processados com sucesso, **{error_count}** erros")
         st.table(results)
 
-# --- YouTube flow ---
 else:
+    st.markdown("Cola um link do YouTube (video ou playlist) para analisar entrevistas de CEOs.")
+    url = st.text_input("URL do YouTube", placeholder="https://www.youtube.com/watch?v=...")
+
+    if not url:
+        st.stop()
+
+    gemini_key = st.secrets["GEMINI_API_KEY"]
+    notion_token = st.secrets["NOTION_TOKEN"]
+    database_id = st.secrets["NOTION_DATABASE_ID"]
+
     try:
         parsed = parse_youtube_url(url)
     except ValueError as e:
@@ -454,14 +511,14 @@ else:
         videos = st.session_state.yt_videos
         st.success(f"**{len(videos)}** videos encontrados.")
 
-        options = [f"{i + 1}. {v['title'][:80]}" for i, v in enumerate(videos)]
+        yt_options = [f"{i + 1}. {v['title'][:80]}" for i, v in enumerate(videos)]
 
         col1, col2 = st.columns(2)
         with col1:
-            from_idx = st.selectbox("De", range(len(options)), format_func=lambda i: options[i], index=0)
+            from_idx = st.selectbox("De", range(len(yt_options)), format_func=lambda i: yt_options[i], index=0)
         with col2:
-            default_to = min(from_idx + 4, len(options) - 1)
-            to_idx = st.selectbox("Ate", range(len(options)), format_func=lambda i: options[i], index=default_to)
+            default_to = min(from_idx + 4, len(yt_options) - 1)
+            to_idx = st.selectbox("Ate", range(len(yt_options)), format_func=lambda i: yt_options[i], index=default_to)
 
         if from_idx > to_idx:
             st.error("O video 'De' deve ser anterior ou igual ao 'Ate'.")
@@ -503,87 +560,38 @@ else:
             st.table(results)
 ```
 
-**Step 2: Commit**
+**Step 3: Commit**
 
 ```bash
 git add streamlit_app.py
-git commit -m "feat: add platform selector and range selector UI"
+git commit -m "feat: add podcast platform selector and range selector UI"
 ```
 
 ---
 
-### Task 5: Update requirements.txt
+### Task 5: Manual end-to-end test
 
-**Files:**
-- Modify: `requirements.txt`
-
-**Step 1: Add feedparser**
-
-Add this line to `requirements.txt`:
-
-```
-feedparser>=6.0.0
-```
-
-**Step 2: Commit**
-
-```bash
-git add requirements.txt
-git commit -m "feat: add feedparser dependency"
-```
-
----
-
-### Task 6: Update design doc with final approach
-
-**Files:**
-- Modify: `docs/plans/2026-03-06-spotify-migration-design.md`
-
-**Step 1: Update the design doc**
-
-Update the design doc to reflect the final approach:
-- Platform name changed from "Spotify" to "Podcast (RSS)"
-- User pastes RSS feed URL directly (no auto-discovery from Spotify URLs)
-- Supadata endpoint is `GET /v1/transcript` with file URLs
-- Async job polling for large files
-
-**Step 2: Commit**
-
-```bash
-git add docs/plans/2026-03-06-spotify-migration-design.md
-git commit -m "docs: update design to reflect RSS feed approach"
-```
-
----
-
-### Task 7: Manual end-to-end test
-
-**Step 1: Find a test RSS feed**
-
-Find a podcast with a public RSS feed. Example: search for any popular podcast name + "RSS feed".
-
-**Step 2: Test podcast flow**
+**Step 1: Test podcast flow**
 
 1. Run `streamlit run streamlit_app.py`
-2. Select "Podcast (RSS)"
-3. Paste the RSS feed URL
-4. Click "Carregar episodios"
-5. Verify episode list loads
-6. Select a range (De/Ate)
-7. Click "Processar"
-8. Verify transcription and Notion write work
+2. Platform should default to "O CEO e o Limite"
+3. Click "Carregar episodios"
+4. Verify 167 episodes load
+5. Select a range of 1-2 episodes (De/Ate)
+6. Click "Processar"
+7. Verify: Supadata transcription works with MP3 URL, Gemini analysis works, Notion row created
 
-**Step 3: Test YouTube flow**
+**Step 2: Test YouTube single video**
 
-1. Select "YouTube"
-2. Paste a YouTube playlist URL
-3. Click "Carregar videos"
-4. Select a range
-5. Click "Processar"
-6. Verify existing pipeline still works
+1. Switch to "YouTube"
+2. Paste a single YouTube video URL
+3. Click "Processar"
+4. Verify existing pipeline works
 
-**Step 4: Test single video (YouTube)**
+**Step 3: Test YouTube playlist with range**
 
-1. Paste a single YouTube video URL
-2. Click "Processar"
-3. Verify it processes without range selector
+1. Paste a YouTube playlist URL
+2. Click "Carregar videos"
+3. Select a range
+4. Click "Processar"
+5. Verify range selector works correctly

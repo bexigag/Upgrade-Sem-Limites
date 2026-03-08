@@ -1,15 +1,15 @@
-# Spotify Support + Range Selector - Design Document
+# Podcast Support + Range Selector - Design Document
 
-**Date:** 2026-03-06
+**Date:** 2026-03-06 (updated 2026-03-08)
 **Status:** Approved
 
 ## Problem
 
-The current app only supports YouTube as a source for CEO interviews. Many podcasts live on Spotify and the user wants to process them without manually handling one episode at a time. Additionally, large playlists/shows need a range selector to pick which episodes to process.
+The current app only supports YouTube as a source for CEO interviews. The podcast "O CEO e o Limite" has 167 episodes but only 19 are visible on YouTube (149 are hidden). We need to access all episodes via another source.
 
 ## Solution
 
-Add Spotify as the default source platform alongside YouTube. Use RSS feeds to list episodes and Supadata to transcribe audio files by URL. Add a two-dropdown range selector for both platforms.
+Use the Apple Podcasts (iTunes) Lookup API to list all episodes of "O CEO e o Limite" with direct MP3 URLs. Transcribe via Supadata file URL endpoint. Add a range selector for both platforms.
 
 ## Architecture
 
@@ -17,21 +17,22 @@ Add Spotify as the default source platform alongside YouTube. Use RSS feeds to l
 Streamlit UI
   |
   v
-Platform selector: [Spotify | YouTube]
-  |                        |
-  v                        v
-Spotify show URL       YouTube playlist URL
-  |                        |
-  v                        v
-RSS feed parser        yt-dlp (existing)
-  |                        |
-  v                        v
-Episode list with range selector (De / Ate dropdowns)
+Platform selector: [O CEO e o Limite | YouTube]
+  |                              |
+  v                              v
+iTunes Lookup API             yt-dlp (existing)
+(hardcoded podcast ID)
+  |                              |
+  v                              v
+167 episodes with MP3 URLs    Video list
+  |                              |
+  v                              v
+Range selector (De / Ate dropdowns)
   |
   v
-For each selected episode:
+For each selected item:
   |
-  +--> Spotify: Supadata API with MP3 URL from RSS
+  +--> Podcast: Supadata /v1/transcript with MP3 URL
   +--> YouTube: youtube-transcript-api (existing) -> Supadata fallback
   |
   v
@@ -41,95 +42,83 @@ Gemini analysis (existing)
 Notion database (existing)
 ```
 
-## Spotify Integration Details
+## Podcast Integration Details
 
-### Listing Episodes (RSS Feed)
+### Listing Episodes (iTunes Lookup API)
 
-Most Spotify podcasts have a public RSS feed. To convert a Spotify show URL to an RSS feed:
+The iTunes Lookup API is public, free, and requires no authentication.
 
-1. Extract the show ID from the URL (e.g. `https://open.spotify.com/show/{show_id}`)
-2. Use a free service or scrape the Spotify page to find the RSS feed URL
-3. Parse the RSS feed (standard XML) to get episodes with: title, date, audio URL (MP3)
+Endpoint:
+```
+GET https://itunes.apple.com/lookup?id=1662139036&media=podcast&entity=podcastEpisode&limit=300
+```
 
-Libraries: `feedparser` for RSS parsing.
+Returns JSON with all 167 episodes including:
+- `trackName` - episode title
+- `episodeUrl` - direct MP3 URL (traffic.omny.fm)
+- `releaseDate` - publication date
+- `trackViewUrl` - Apple Podcasts link
 
-Fallback: If RSS feed cannot be found automatically, allow user to paste the RSS feed URL directly.
+The podcast ID (1662139036) is hardcoded since this is a dedicated tool for one specific podcast.
 
 ### Transcription
 
-The RSS feed provides direct MP3 URLs for each episode. Supadata accepts public file URLs (MP3, M4A, etc. up to 1GB) for transcription. No audio download needed - Supadata processes server-side.
+Supadata accepts public file URLs (MP3, M4A, etc. up to 1GB).
 
-Endpoint: `GET https://api.supadata.ai/v1/youtube/transcript` with the MP3 URL (despite the path name, it accepts file URLs).
+Endpoint: `GET https://api.supadata.ai/v1/transcript`
+- Params: `url` (MP3 URL), `text=true`
+- Returns 200 with `{"content": "..."}` for small files
+- Returns 202 with `{"jobId": "..."}` for large files (need polling)
 
-### Limitations
+### Why not RSS / Spotify API
 
-- Spotify-exclusive podcasts without a public RSS feed will not work
-- Very long episodes may take longer for Supadata to process
+- RSS feed (Omny.fm) only shows 22 most recent episodes (out of 167)
+- Spotify API requires Premium subscription
+- Spotify embed API only shows 1 episode at a time
+- SpotifyScraper library doesn't support podcasts
+- iTunes API returns ALL episodes for free, no auth needed
 
 ## YouTube Integration (Existing)
 
 No changes to the existing YouTube pipeline. Only addition is the range selector UI.
 
-- Playlist listing: `yt-dlp` (existing)
-- Transcript: `youtube-transcript-api` -> Supadata fallback (existing)
-
 ## UI Changes
 
 ### Platform Selector
 
-Default: Spotify. Radio buttons at the top of the page.
+Radio buttons: "O CEO e o Limite" (default) | "YouTube"
 
-### URL Input
+### Podcast flow
 
-Single text input. Placeholder changes based on platform:
-- Spotify: `https://open.spotify.com/show/...`
-- YouTube: `https://www.youtube.com/playlist?list=...`
+No URL input needed - the podcast is hardcoded. User clicks "Carregar episodios", sees the full list, selects a range, and processes.
 
-Accepts both single episodes/videos and shows/playlists.
+### YouTube flow
 
-### Range Selector (new)
+Same as before but with range selector for playlists.
 
-Shown after clicking "Carregar episodios" for shows/playlists:
+### Range Selector
 
-1. Fetch full episode list
-2. Display two dropdowns: "De" (from) and "Ate" (to)
-3. Each dropdown shows: episode number + title (truncated)
-4. Show count of selected episodes and time estimate
-5. "Processar" button to start
-
-For single episodes/videos: skip the range selector, process directly.
-
-### Flow
-
-```
-1. Select platform (Spotify/YouTube)
-2. Paste URL
-3a. Single episode/video -> [Processar] -> process directly
-3b. Show/playlist -> [Carregar episodios] -> range selector -> [Processar]
-```
+Two dropdowns (De / Ate) shown after loading episode/video list:
+1. Fetch full list
+2. Display two selectboxes with episode/video titles
+3. Show count of selected items
+4. "Processar" button
 
 ## New Dependencies
 
-- `feedparser` - RSS feed parsing
-
-## Config Changes
-
-New Streamlit secrets:
-- None required (RSS feeds are public, Supadata key already exists)
+None - only uses `requests` (already installed) for iTunes API.
 
 ## New Module
 
-`src/spotify.py`:
-- `parse_spotify_url(url)` - extract show_id or episode_id
-- `get_rss_feed_url(show_id)` - find RSS feed for a Spotify show
-- `get_show_episodes(rss_url)` - parse RSS and return episode list
-- `get_episode_metadata(episode)` - extract title, date, audio URL
+`src/podcast.py`:
+- `get_ceo_episodes()` - fetch all episodes from iTunes API
+- `get_episode_metadata(episode)` - format episode data for analyzer
 
 ## Files to Modify
 
-- `streamlit_app.py` - main UI changes (platform selector, range selector, Spotify flow)
-- `requirements.txt` - add `feedparser`
+- `streamlit_app.py` - main UI changes
+- No changes to requirements.txt needed
 
 ## Files to Create
 
-- `src/spotify.py` - Spotify/RSS module
+- `src/podcast.py` - podcast module
