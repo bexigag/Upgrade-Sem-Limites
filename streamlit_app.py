@@ -65,8 +65,10 @@ def get_transcript_supadata_file(audio_url: str, api_key: str, max_polls: int = 
                     return content if content.strip() else None
             return None
 
+        st.warning(f"Supadata respondeu com status {resp.status_code}: {resp.text[:200]}")
         return None
-    except Exception:
+    except Exception as e:
+        st.warning(f"Erro ao chamar Supadata: {e}")
         return None
 
 st.set_page_config(page_title="CEO Video Transcriber", page_icon="🎥", layout="centered")
