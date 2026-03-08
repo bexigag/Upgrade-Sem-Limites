@@ -33,45 +33,58 @@ def get_transcript_supadata(video_id: str, api_key: str) -> str | None:
     return None
 
 
-def get_transcript_supadata_file(audio_url: str, api_key: str, max_polls: int = 30) -> tuple[str | None, str | None]:
-    """Transcribe an audio file URL using Supadata API. Returns (transcript, error_detail)."""
+def transcribe_audio_gemini(audio_url: str, api_key: str) -> tuple[str | None, str | None]:
+    """Download audio from URL and transcribe using Gemini. Returns (transcript, error_detail)."""
+    import tempfile
+    import os
+    from google import genai
+    from google.genai import types
+
+    tmp_path = None
     try:
-        resp = requests.get(
-            "https://api.supadata.ai/v1/transcript",
-            params={"url": audio_url, "text": "true"},
-            headers={"x-api-key": api_key},
-            timeout=120,
+        st.write("A descarregar audio...")
+        resp = requests.get(audio_url, timeout=300, stream=True)
+        resp.raise_for_status()
+
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            for chunk in resp.iter_content(chunk_size=8192):
+                tmp.write(chunk)
+            tmp_path = tmp.name
+
+        file_size_mb = os.path.getsize(tmp_path) / (1024 * 1024)
+        st.write(f"Audio descarregado ({file_size_mb:.1f} MB). A transcrever com Gemini...")
+
+        client = genai.Client(api_key=api_key)
+
+        if file_size_mb > 15:
+            uploaded = client.files.upload(file=tmp_path)
+            audio_part = uploaded
+        else:
+            with open(tmp_path, "rb") as f:
+                audio_bytes = f.read()
+            audio_part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/mp3")
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                "Transcreve este audio na lingua original. Devolve apenas a transcricao completa, sem comentarios adicionais.",
+                audio_part,
+            ],
+            config=types.GenerateContentConfig(
+                max_output_tokens=65536,
+            ),
         )
 
-        if resp.status_code == 200:
-            data = resp.json()
-            content = data.get("content", "")
-            if content.strip():
-                return content, None
-            return None, f"Supadata devolveu conteudo vazio. Resposta: {resp.text[:300]}"
+        text = response.text.strip() if response.text else ""
+        if text:
+            return text, None
+        return None, "Gemini devolveu resposta vazia"
 
-        if resp.status_code == 202:
-            job_id = resp.json().get("jobId")
-            if not job_id:
-                return None, "Supadata devolveu 202 mas sem jobId"
-            for poll_num in range(max_polls):
-                time.sleep(10)
-                poll_resp = requests.get(
-                    f"https://api.supadata.ai/v1/transcript/{job_id}",
-                    headers={"x-api-key": api_key},
-                    timeout=30,
-                )
-                if poll_resp.status_code == 200:
-                    data = poll_resp.json()
-                    content = data.get("content", "")
-                    if content.strip():
-                        return content, None
-                    return None, f"Job concluido mas conteudo vazio"
-            return None, f"Timeout: job {job_id} nao completou apos {max_polls} tentativas"
-
-        return None, f"Status {resp.status_code}: {resp.text[:300]}"
     except Exception as e:
-        return None, f"Excepcao: {e}"
+        return None, f"Erro na transcricao: {e}"
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 st.set_page_config(page_title="CEO Video Transcriber", page_icon="🎥", layout="centered")
 
@@ -183,14 +196,18 @@ def process_single_episode(episode: dict, gemini_key: str, notion_token: str, da
             status.update(label="Sem audio", state="error")
             return False, None, None
 
-        st.write("A transcrever via Supadata...")
-        supadata_key = st.secrets.get("SUPADATA_API_KEY")
-        if not supadata_key:
-            st.error("SUPADATA_API_KEY nao configurada.")
-            status.update(label="Sem chave Supadata", state="error")
-            return False, None, None
+        gemini_keys = [k.strip() for k in gemini_key.split(",") if k.strip()]
+        gemini_keys.reverse()
 
-        transcript, error_detail = get_transcript_supadata_file(episode["audio_url"], supadata_key)
+        transcript = None
+        error_detail = None
+        for i, key in enumerate(gemini_keys):
+            transcript, error_detail = transcribe_audio_gemini(episode["audio_url"], key)
+            if transcript:
+                break
+            if i < len(gemini_keys) - 1:
+                st.warning(f"Gemini key {i + 1} falhou na transcricao, a tentar a seguinte...")
+
         if transcript is None:
             st.error(f"Nao foi possivel transcrever o episodio. {error_detail or ''}")
             page_id = add_row(
@@ -205,8 +222,6 @@ def process_single_episode(episode: dict, gemini_key: str, notion_token: str, da
         st.write(f"Transcricao: {len(transcript)} caracteres")
 
         st.write("A analisar com Gemini...")
-        gemini_keys = [k.strip() for k in gemini_key.split(",") if k.strip()]
-        gemini_keys.reverse()
         analysis = None
         for i, key in enumerate(gemini_keys):
             try:
