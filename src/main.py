@@ -12,7 +12,7 @@ from src.analyzer import analyze_transcript
 from src.notion_db import create_database, add_row
 
 
-def process_video(video_id: str, database_id: str, config: dict) -> str:
+def process_video(video_id: str, database_id: str, config: dict) -> list[str]:
     print(f"  Fetching metadata for {video_id}...")
     metadata = get_video_metadata(video_id)
 
@@ -26,40 +26,47 @@ def process_video(video_id: str, database_id: str, config: dict) -> str:
 
     if transcript is None:
         print(f"  ERROR: Could not get transcript for {video_id}")
-        return add_row(
+        page_id = add_row(
             token=config["notion_token"],
             database_id=database_id,
             video_url=metadata["url"],
             analysis=None,
             status="Erro",
         )
+        return [page_id]
 
     print(f"  Transcript: {len(transcript)} characters. Analyzing with Gemini...")
 
-    analysis = analyze_transcript(
+    persons = analyze_transcript(
         transcript=transcript,
         metadata=metadata,
         api_key=config["gemini_api_key"],
     )
 
-    if analysis is None:
+    if persons is None:
         print(f"  ERROR: Gemini analysis failed for {video_id}")
-        return add_row(
+        page_id = add_row(
             token=config["notion_token"],
             database_id=database_id,
             video_url=metadata["url"],
             analysis=None,
             status="Erro",
         )
+        return [page_id]
 
-    print(f"  Analysis complete. Writing to Notion...")
+    print(f"  Analysis complete. Found {len(persons)} person(s). Writing to Notion...")
 
-    return add_row(
-        token=config["notion_token"],
-        database_id=database_id,
-        video_url=metadata["url"],
-        analysis=analysis,
-    )
+    page_ids = []
+    for person in persons:
+        page_id = add_row(
+            token=config["notion_token"],
+            database_id=database_id,
+            video_url=metadata["url"],
+            analysis=person,
+        )
+        page_ids.append(page_id)
+
+    return page_ids
 
 
 def main():
@@ -87,8 +94,8 @@ def main():
 
     if parsed["type"] == "video":
         print(f"\nProcessing single video: {parsed['video_id']}")
-        page_id = process_video(parsed["video_id"], db_id, config)
-        print(f"Done! Notion page: {page_id}")
+        page_ids = process_video(parsed["video_id"], db_id, config)
+        print(f"Done! Created {len(page_ids)} Notion page(s)")
 
     elif parsed["type"] == "playlist":
         print(f"\nFetching playlist: {parsed['playlist_id']}")
@@ -98,8 +105,8 @@ def main():
         for i, video in enumerate(videos, 1):
             print(f"[{i}/{len(videos)}] Processing: {video['title']}")
             try:
-                page_id = process_video(video["id"], db_id, config)
-                print(f"  Notion page: {page_id}\n")
+                page_ids = process_video(video["id"], db_id, config)
+                print(f"  Created {len(page_ids)} Notion page(s)\n")
             except Exception as e:
                 print(f"  ERROR: {e}\n")
 
