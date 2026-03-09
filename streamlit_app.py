@@ -109,7 +109,7 @@ if not check_password():
 
 
 def process_single_video(video_id: str, gemini_key: str, notion_token: str, database_id: str):
-    """Process one video. Returns (success: bool, analysis: dict | None, page_id: str | None)."""
+    """Process one video. Returns (success: bool, persons: list[dict] | None, page_ids: list[str] | None)."""
     with st.status("A processar o video...", expanded=True) as status:
         st.write("A obter metadados...")
         try:
@@ -144,18 +144,18 @@ def process_single_video(video_id: str, gemini_key: str, notion_token: str, data
         st.write("A analisar com Gemini...")
         gemini_keys = [k.strip() for k in gemini_key.split(",") if k.strip()]
         gemini_keys.reverse()  # Use last key first (first key reserved for Make.com)
-        analysis = None
+        persons = None
         for i, key in enumerate(gemini_keys):
             try:
-                analysis = analyze_transcript(transcript, metadata, key)
-                if analysis:
+                persons = analyze_transcript(transcript, metadata, key)
+                if persons:
                     break
             except Exception as e:
                 if i < len(gemini_keys) - 1:
                     st.warning(f"Gemini key {i + 1} falhou, a tentar a seguinte...")
                 else:
                     st.warning(f"Erro do Gemini: {e}")
-        if analysis is None:
+        if persons is None:
             st.error("A analise do Gemini falhou.")
             page_id = add_row(
                 token=notion_token,
@@ -168,26 +168,31 @@ def process_single_video(video_id: str, gemini_key: str, notion_token: str, data
             status.update(label="Erro na analise", state="error")
             return False, None, page_id
 
-        st.write("A escrever no Notion...")
-        try:
-            page_id = add_row(
-                token=notion_token,
-                database_id=database_id,
-                video_url=metadata["url"],
-                analysis=analysis,
-                date=metadata.get("upload_date", ""),
-            )
-        except Exception as e:
-            st.error(f"Erro ao escrever no Notion: {e}")
+        st.write(f"Encontradas **{len(persons)}** pessoa(s). A escrever no Notion...")
+        page_ids = []
+        for person in persons:
+            try:
+                page_id = add_row(
+                    token=notion_token,
+                    database_id=database_id,
+                    video_url=metadata["url"],
+                    analysis=person,
+                    date=metadata.get("upload_date", ""),
+                )
+                page_ids.append(page_id)
+            except Exception as e:
+                st.error(f"Erro ao escrever no Notion: {e}")
+
+        if not page_ids:
             status.update(label="Erro no Notion", state="error")
             return False, None, None
-        status.update(label="Concluido!", state="complete")
+        status.update(label=f"Concluido! ({len(page_ids)} pessoa(s))", state="complete")
 
-    return True, analysis, page_id
+    return True, persons, page_ids
 
 
 def process_single_episode(episode: dict, gemini_key: str, notion_token: str, database_id: str):
-    """Process one podcast episode. Returns (success: bool, analysis: dict | None, page_id: str | None)."""
+    """Process one podcast episode. Returns (success: bool, persons: list[dict] | None, page_ids: list[str] | None)."""
     from src.podcast import get_episode_metadata
 
     with st.status("A processar o episodio...", expanded=True) as status:
@@ -226,18 +231,18 @@ def process_single_episode(episode: dict, gemini_key: str, notion_token: str, da
         st.write(f"Transcricao: {len(transcript)} caracteres")
 
         st.write("A analisar com Gemini...")
-        analysis = None
+        persons = None
         for i, key in enumerate(gemini_keys):
             try:
-                analysis = analyze_transcript(transcript, metadata, key)
-                if analysis:
+                persons = analyze_transcript(transcript, metadata, key)
+                if persons:
                     break
             except Exception as e:
                 if i < len(gemini_keys) - 1:
                     st.warning(f"Gemini key {i + 1} falhou, a tentar a seguinte...")
                 else:
                     st.warning(f"Erro do Gemini: {e}")
-        if analysis is None:
+        if persons is None:
             st.error("A analise do Gemini falhou.")
             page_id = add_row(
                 token=notion_token,
@@ -250,22 +255,27 @@ def process_single_episode(episode: dict, gemini_key: str, notion_token: str, da
             status.update(label="Erro na analise", state="error")
             return False, None, page_id
 
-        st.write("A escrever no Notion...")
-        try:
-            page_id = add_row(
-                token=notion_token,
-                database_id=database_id,
-                video_url=metadata["url"],
-                analysis=analysis,
-                date=metadata.get("upload_date", ""),
-            )
-        except Exception as e:
-            st.error(f"Erro ao escrever no Notion: {e}")
+        st.write(f"Encontradas **{len(persons)}** pessoa(s). A escrever no Notion...")
+        page_ids = []
+        for person in persons:
+            try:
+                page_id = add_row(
+                    token=notion_token,
+                    database_id=database_id,
+                    video_url=metadata["url"],
+                    analysis=person,
+                    date=metadata.get("upload_date", ""),
+                )
+                page_ids.append(page_id)
+            except Exception as e:
+                st.error(f"Erro ao escrever no Notion: {e}")
+
+        if not page_ids:
             status.update(label="Erro no Notion", state="error")
             return False, None, None
-        status.update(label="Concluido!", state="complete")
+        status.update(label=f"Concluido! ({len(page_ids)} pessoa(s))", state="complete")
 
-    return True, analysis, page_id
+    return True, persons, page_ids
 
 
 GEMINI_WAIT_SECONDS = 20  # 5 RPM limit = 1 request per 12s, using 20s for safety
@@ -333,12 +343,12 @@ def main_ui():
                 progress.progress(i / len(selected), text=f"Episodio {i + 1}/{len(selected)}: {episode['title'][:50]}")
                 st.subheader(f"Episodio {i + 1}: {episode['title'][:80]}")
 
-                ok, analysis, page_id = process_single_episode(episode, gemini_key, notion_token, database_id)
+                ok, persons, page_ids = process_single_episode(episode, gemini_key, notion_token, database_id)
 
                 if ok:
                     success_count += 1
                     consecutive_errors = 0
-                    results.append({"episodio": episode["title"][:50], "status": "OK", "nome": analysis.get("nome", "—")})
+                    results.append({"episodio": episode["title"][:50], "status": "OK", "nome": " | ".join(p.get("nome", "—") for p in persons)})
                 else:
                     error_count += 1
                     consecutive_errors += 1
@@ -380,15 +390,13 @@ def main_ui():
 
         if parsed["type"] == "video":
             if st.button("Processar", type="primary"):
-                ok, analysis, page_id = process_single_video(
+                ok, persons, page_ids = process_single_video(
                     parsed["video_id"], gemini_key, notion_token, database_id
                 )
                 if ok:
-                    st.success("Video processado com sucesso!")
-                    clean_id = page_id.replace("-", "")
-                    st.markdown(f"[Abrir no Notion](https://notion.so/{clean_id})")
+                    st.success(f"Video processado com sucesso! {len(persons)} pessoa(s) encontrada(s).")
                     st.subheader("Resultado da Analise")
-                    st.json(analysis)
+                    st.json(persons)
 
         elif parsed["type"] == "playlist":
             if "yt_videos" not in st.session_state or st.session_state.get("yt_playlist_id") != parsed["playlist_id"]:
@@ -433,12 +441,12 @@ def main_ui():
                     progress.progress(i / len(selected), text=f"Video {i + 1}/{len(selected)}: {video['title'][:50]}")
                     st.subheader(f"Video {i + 1}: {video['title'][:80]}")
 
-                    ok, analysis, page_id = process_single_video(video["id"], gemini_key, notion_token, database_id)
+                    ok, persons, page_ids = process_single_video(video["id"], gemini_key, notion_token, database_id)
 
                     if ok:
                         success_count += 1
                         consecutive_errors = 0
-                        results.append({"video": video["title"][:50], "status": "OK", "nome": analysis.get("nome", "—")})
+                        results.append({"video": video["title"][:50], "status": "OK", "nome": " | ".join(p.get("nome", "—") for p in persons)})
                     else:
                         error_count += 1
                         consecutive_errors += 1
