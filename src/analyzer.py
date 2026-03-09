@@ -3,24 +3,34 @@ from google import genai
 from google.genai import types
 
 
-SYSTEM_PROMPT = """És um analista de inteligência estratégica. Analisa transcrições de entrevistas de CEOs e extrai informação estruturada.
+SYSTEM_PROMPT = """És um analista de inteligência estratégica. Analisa transcrições de entrevistas e identifica TODAS as pessoas com substância (nome, cargo, empresa, opiniões relevantes).
 
 A nossa empresa implementa soluções de AI, ensina a usar AI e otimiza processos com AI. O objetivo é identificar oportunidades de negócio nestas entrevistas.
 
-Responde APENAS com um objeto JSON válido, sem texto adicional. O JSON deve ter exatamente estes campos:
+REGRAS IMPORTANTES:
+- Exclui apresentadores/entrevistadores que apenas fazem perguntas.
+- Identifica TODAS as pessoas entrevistadas que partilham opiniões, estratégias ou informação relevante.
+- Retorna SEMPRE um array JSON, mesmo que haja apenas 1 pessoa.
+- Máximo de 5 pessoas por entrevista.
 
-{
-  "nome": "Nome completo do CEO/entrevistado",
-  "cargo": "Cargo e empresa",
-  "usa_ia": "Sim/Não - informaçao extra sobre isto",
-  "vai_usar_ia": "Sim/Não - informaçao extra sobre isto",
-  "inovacao": "Inovações em curso",
-  "estrategia_digital": "Insights sobre estratégia digital",
-  "tecnologias_mencionadas": ["lista", "de", "tecnologias", "os elementos nao podem ter virgulas"],
-  "principais_desafios": "Desafios principais",
-  "resumo_estrategico": "Resumo conciso (2-3 frases)",
-  "potencial_cliente": "N/10 (Quente/Morno/Frio) - justificação breve do potencial desta empresa como cliente para os nossos serviços de AI"
-}
+Responde APENAS com um array JSON válido, sem texto adicional. Cada elemento do array deve ter exatamente estes campos:
+
+[
+  {
+    "nome": "Nome completo da pessoa",
+    "cargo": "Cargo e empresa",
+    "usa_ia": "Sim/Não - informação extra sobre isto",
+    "vai_usar_ia": "Sim/Não - informação extra sobre isto",
+    "inovacao": "Inovações em curso",
+    "estrategia_digital": "Insights sobre estratégia digital",
+    "tecnologias_mencionadas": ["lista", "de", "tecnologias", "os elementos nao podem ter virgulas"],
+    "principais_desafios": "Desafios principais",
+    "resumo_estrategico": "Resumo conciso (2-3 frases)",
+    "potencial_cliente": "N/10 (Quente/Morno/Frio) - justificação breve do potencial desta empresa como cliente para os nossos serviços de AI"
+  }
+]
+
+Cada pessoa deve ter TODOS os campos preenchidos de forma independente.
 
 Para o potencial_cliente, avalia considerando: se já usa AI (pode querer mais), se quer usar AI (oportunidade direta), se tem desafios que AI resolve, se mencionou orçamento ou parcerias tecnológicas.
 
@@ -38,7 +48,7 @@ Transcrição:
 {transcript}"""
 
 
-def analyze_transcript(transcript: str, metadata: dict, api_key: str) -> dict | None:
+def analyze_transcript(transcript: str, metadata: dict, api_key: str) -> list[dict] | None:
     client = genai.Client(api_key=api_key)
 
     response = client.models.generate_content(
@@ -58,6 +68,16 @@ def analyze_transcript(transcript: str, metadata: dict, api_key: str) -> dict | 
             # Remove first line (```json) and last line (```)
             lines = [l for l in lines if not l.strip().startswith("```")]
             response_text = "\n".join(lines)
-        return json.loads(response_text)
+        parsed = json.loads(response_text)
+
+        # Backward compatibility: wrap single dict in a list
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+
+        if not isinstance(parsed, list):
+            return None
+
+        # Cap at 5 persons maximum
+        return parsed[:5]
     except (json.JSONDecodeError, IndexError, AttributeError):
         return None
