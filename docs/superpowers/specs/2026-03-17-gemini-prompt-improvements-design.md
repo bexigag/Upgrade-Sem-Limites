@@ -41,6 +41,12 @@ O sistema atual analisa transcrições de vídeos de CEOs usando Gemini e cria l
 ]
 ```
 
+**Especificações dos campos:**
+- **Obrigatórios**: nome, cargo, empresa, visao_estrategica, principais_desafios
+- **Opcionais**: departamento_ai, pessoas_departamento_ai, outreach
+- **Tipo tecnologias_mencionadas**: Array de strings (max 10)
+- **Limite caracteres**: campos texto até 2000 chars (Notion rich_text limit)
+
 ### Regras do Gemini
 
 **Novos filtros de inclusão:**
@@ -66,6 +72,8 @@ O sistema atual analisa transcrições de vídeos de CEOs usando Gemini e cria l
 - **Excluir**: tecnologias genéricas sem contexto (ex: "email", "telefone", "website")
 - **Incluir**: machine learning, computer vision, LLMs, cloud, data analytics, automação, transformação digital, IA generativa, etc.
 
+**Nota:** Python não faz validação adicional da lista de tecnologias. Confiamos que o Gemini segue as instruções da prompt.
+
 **Departamento AI:**
 - Identificar se a empresa tem departamento AI
 - Se sim, descrever resumidamente o que faz
@@ -73,7 +81,7 @@ O sistema atual analisa transcrições de vídeos de CEOs usando Gemini e cria l
 - Se externo, listar na coluna "Pessoas Associadas" os nomes e empresa
 
 **Outreach:**
-- Formato: **3-5 bullet points** concisos
+- Formato: **3-5 bullet points** concisos, cada um começando com "•"
 - Extrair pontos de gancho para email comercial
 - Baseado em:
   - Desafios mencionados que AI pode resolver
@@ -81,7 +89,7 @@ O sistema atual analisa transcrições de vídeos de CEOs usando Gemini e cria l
   - Menção de orçamento/parcerias tecnológicas
   - Urgência ou timeline de projetos
   - Interesse em inovação/transformação digital
-- Exemplo: "• Desafio com processamento de dados em tempo real\n• Interesse em IA generativa para atendimento ao cliente"
+- Exemplo completo: "• Desafio com processamento de dados em tempo real\n• Interesse em IA generativa para atendimento ao cliente\n• Planeando expansão para 2025\n• Aberto a parcerias tecnológicas\n• Transformação digital como prioridade estratégica"
 
 ## Alterações de Código
 
@@ -97,25 +105,30 @@ O sistema atual analisa transcrições de vídeos de CEOs usando Gemini e cria l
 # Após parse do JSON, validar cada pessoa:
 def _is_person_valid(person: dict) -> bool:
     # Nome não pode ser "Não mencionado" ou vazio
-    nome = person.get("nome", "").strip().lower()
-    if nome in ["não mencionado", "nao mencionado", ""] or len(person.get("nome", "")) < 3:
+    nome = person.get("nome", "").strip()
+    nome_lower = nome.lower()
+    if nome_lower in ["não mencionado", "nao mencionado", ""] or len(nome) < 2:
         return False
 
     # Cargo e Empresa devem ter mais de 2 caracteres
-    if len(person.get("cargo", "")) <= 2 or len(person.get("empresa", "")) <= 2:
+    if len(person.get("cargo", "").strip()) <= 2:
+        return False
+    if len(person.get("empresa", "").strip()) <= 2:
         return False
 
-    # Contar campos "não mencionado" (excluindo tecnologias que é lista)
+    # Campos obrigatórios a verificar (excluindo tecnologias e pessoas_departamento_ai que são opcionais)
+    required_fields = ["nome", "cargo", "empresa", "usa_ia", "vai_usar_ia", "visao_estrategica", "principais_desafios"]
     nao_mentionados = 0
-    for k, v in person.items():
-        if k == "tecnologias_mencionadas":
-            continue  # Skip list field
+    for k in required_fields:
+        v = person.get(k, "")
         if isinstance(v, str) and v.strip().lower() in ["não mencionado", "nao mencionado", ""]:
             nao_mentionados += 1
 
-    # Máximo 3 campos vazios
+    # Máximo 3 campos obrigatórios vazios
     return nao_mentionados <= 3
 ```
+
+**Nota:** O wrapper `if isinstance(parsed, dict): parsed = [parsed]` deve ser **mantido** para compatibilidade com respostas antigas do Gemini ou testes.
 
 **Retorno:**
 - Manter `list[dict] | None`
@@ -126,11 +139,13 @@ def _is_person_valid(person: dict) -> bool:
 
 **Novos campos no mapeamento `add_row()`:**
 ```python
-# Defaults vazios se Gemini não retornar o campo
+# Campos obrigatórios - se Gemini não retornar, usar "Não mencionado"
 properties["Nome da Empresa"] = _rich_text(analysis.get("empresa") or "Não mencionado")
-properties["Tem Departamento AI"] = _rich_text(analysis.get("departamento_ai") or "Não mencionado")
-properties["Pessoas Departamento AI"] = _rich_text(analysis.get("pessoas_departamento_ai") or "")
 properties["Visão Estratégica"] = _rich_text(analysis.get("visao_estrategica") or "Não mencionado")
+properties["Tem Departamento AI"] = _rich_text(analysis.get("departamento_ai") or "Não mencionado")
+
+# Campos opcionais - podem ficar vazios se não aplicável
+properties["Pessoas Departamento AI"] = _rich_text(analysis.get("pessoas_departamento_ai") or "")
 properties["Outreach"] = _rich_text(analysis.get("outreach") or "")
 ```
 
@@ -148,9 +163,11 @@ properties["Cargo"] = _rich_text(analysis.get("cargo", ""))  # Sem empresa
 **SCHEMA (para referência, usado em `create_database()`):**
 - `SCHEMA` em `notion_db.py` precisa ser atualizado
 - Remover: `Estratégia Digital`, `Inovação`, `Resumo Estratégico`
-- Adicionar: `Nome da Empresa`, `Tem Departamento AI`, `Pessoas Departamento AI`, `Visão Estratégica`, `Outreach`
+- Adicionar: `Nome da Empresa` (rich_text), `Tem Departamento AI` (rich_text), `Pessoas Departamento AI` (rich_text), `Visão Estratégica` (rich_text), `Outreach` (rich_text)
 
-**Nota:** Novas databases criadas com código atualizado terão o schema correto. Databases existentes não são afetados pelo `SCHEMA` (são usadas como estão).
+**Nota:** Novas databases criadas com código atualizado terão o schema correto.
+
+**AVISO CRÍTICO:** Para databases existentes, o utilizador deve **criar manualmente as novas colunas** no Notion antes de usar o código atualizado. Sem estas colunas, `add_row()` falhará.
 
 ### `streamlit_app.py` e `src/main.py`
 
@@ -208,14 +225,14 @@ O utilizador deve criar as seguintes colunas no Notion antes de usar o código a
 - `test_analyze_transcript_returns_structured_data`: Mudar de `result["nome"]` para `result[0]["nome"]` (acesso à lista)
 - Adicionar teste com múltiplas pessoas: mock retornando array JSON
 
-**Novos casos de teste:**
-1. `test_excludes_person_without_name`: Pessoa com nome "Não mencionado" ou vazio → retorna lista vazia
-2. `test_excludes_person_with_too_many_empty_fields`: Pessoa com >3 campos "Não mencionado" → excluída
-3. `test_excludes_person_with_short_cargo_empresa`: Pessoa com cargo/empresa <= 2 caracteres → excluída
-4. `test_includes_valid_person`: Pessoa com todos campos válidos → incluída
-5. `test_max_5_persons_returned`: Gemini retorna 7 pessoas → código retorna apenas 5
-6. `test_outreach_format`: Outreach contém múltiplas linhas (bullets) não vazio
-7. `test_cargo_empresa_separated`: `cargo` e `empresa` são campos separados no JSON retornado
+**Novos casos de teste (com assertions específicas):**
+1. `test_excludes_person_without_name`: Pessoa com nome "Não mencionado" ou vazio → `assert len(result) == 0`
+2. `test_excludes_person_with_too_many_empty_fields`: Pessoa com >3 campos "Não mencionado" → `assert len(result) == 0`
+3. `test_excludes_person_with_short_cargo_empresa`: Pessoa com cargo/empresa <= 2 caracteres → `assert len(result) == 0`
+4. `test_includes_valid_person`: Pessoa com todos campos válidos → `assert len(result) > 0` e `assert result[0]["cargo"]` != pessoa.cargo_original
+5. `test_max_5_persons_returned`: Gemini retorna 7 pessoas → `assert len(result) == 5`
+6. `test_outreach_format`: `assert len(outreach.split('\n')) >= 3` e `assert all('•' in line or '-' in line for line in outreach.split('\n'))`
+7. `test_cargo_empresa_separated`: `assert "cargo" in result[0]` e `assert "empresa" in result[0]` são campos distintos
 
 ### Testes de Integração
 
