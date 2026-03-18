@@ -16,17 +16,22 @@ def test_build_prompt_includes_transcript_and_metadata():
 
 def test_analyze_transcript_returns_structured_data():
     mock_response = MagicMock()
-    mock_response.text = json.dumps({
-        "nome": "John Smith",
-        "cargo": "CEO of TechCorp",
-        "usa_ia": "Sim - utiliza IA para automação de processos internos",
-        "vai_usar_ia": "Sim - planeia expandir uso de IA generativa",
-        "inovacao": "Desenvolvimento de plataforma interna de IA",
-        "estrategia_digital": "Transformação digital focada em cloud e IA",
-        "tecnologias_mencionadas": ["ChatGPT", "AWS", "Kubernetes"],
-        "principais_desafios": "Regulamentação e talento técnico",
-        "resumo_estrategico": "TechCorp aposta forte em IA generativa..."
-    })
+    mock_response.text = json.dumps([
+        {
+            "nome": "John Smith",
+            "cargo": "CEO",
+            "empresa": "TechCorp",
+            "usa_ia": "Sim - utiliza IA para automação de processos internos",
+            "vai_usar_ia": "Sim - planeia expandir uso de IA generativa",
+            "departamento_ai": "Não mencionado",
+            "pessoas_departamento_ai": "",
+            "visao_estrategica": "Transformação digital focada em cloud e IA, com expansão planeada para 2025",
+            "tecnologias_mencionadas": ["ChatGPT", "AWS", "Kubernetes"],
+            "principais_desafios": "Regulamentação e talento técnico",
+            "outreach": "• Desafio com talento técnico\n• Interesse em IA generativa",
+            "potencial_cliente": "7/10 (Quente) - Já usa IA e planeia expandir"
+        }
+    ])
 
     with patch("src.analyzer.genai") as mock_genai:
         mock_client = MagicMock()
@@ -39,10 +44,11 @@ def test_analyze_transcript_returns_structured_data():
             api_key="test-key",
         )
 
-    assert result["nome"] == "John Smith"
-    assert result["cargo"] == "CEO of TechCorp"
-    assert "ChatGPT" in result["tecnologias_mencionadas"]
-    assert result["usa_ia"].startswith("Sim")
+    assert result[0]["nome"] == "John Smith"
+    assert result[0]["cargo"] == "CEO"
+    assert result[0]["empresa"] == "TechCorp"
+    assert "ChatGPT" in result[0]["tecnologias_mencionadas"]
+    assert result[0]["usa_ia"].startswith("Sim")
 
 
 def test_analyze_transcript_handles_invalid_json():
