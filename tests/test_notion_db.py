@@ -31,11 +31,13 @@ def test_create_database_has_correct_schema():
     assert "Link da Entrevista" in properties
     assert "Usa IA" in properties
     assert "Vai Usar IA" in properties
-    assert "Inovação" in properties
-    assert "Estratégia Digital" in properties
+    assert "Visão Estratégica" in properties  # NEW (replaces Inovação, Estratégia Digital, Resumo Estratégico)
     assert "Tecnologias Mencionadas" in properties
     assert "Principais Desafios" in properties
-    assert "Resumo Estratégico" in properties
+    assert "Tem Departamento AI" in properties  # NEW
+    assert "Pessoas Departamento AI" in properties  # NEW
+    assert "Outreach" in properties  # NEW
+    assert "Nome da Empresa" in properties  # NEW
     assert "Apontamentos" in properties
     assert "Status" in properties
 
@@ -46,14 +48,16 @@ def test_add_row_creates_page():
 
     analysis = {
         "nome": "John Smith",
-        "cargo": "CEO of TechCorp",
+        "cargo": "CEO",  # Separated from empresa
+        "empresa": "TechCorp",  # NEW field
         "usa_ia": "Sim - usa ChatGPT",
         "vai_usar_ia": "Sim - planeia expandir",
-        "inovacao": "Plataforma interna de IA",
-        "estrategia_digital": "Cloud-first",
+        "departamento_ai": "Sim - equipe de 3 pessoas",
+        "pessoas_departamento_ai": "Carlos Silva (DataAI)",
+        "visao_estrategica": "Cloud-first com foco em IA, expansão planeada para 2025",  # Combined field
         "tecnologias_mencionadas": ["ChatGPT", "AWS"],
         "principais_desafios": "Regulamentação",
-        "resumo_estrategico": "Aposta forte em IA",
+        "outreach": "• Desafio com regulamentação\n• Interesse em expansão",  # NEW
     }
 
     with patch("src.notion_db.Client", return_value=mock_notion):
@@ -71,6 +75,11 @@ def test_add_row_creates_page():
     props = call_kwargs["properties"]
     assert props["Nome"]["title"][0]["text"]["content"] == "John Smith"
     assert props["Status"]["select"]["name"] == "Concluído"
+    assert props["Nome da Empresa"]["rich_text"][0]["text"]["content"] == "TechCorp"
+    assert props["Visão Estratégica"]["rich_text"][0]["text"]["content"].startswith("Cloud-first")
+    assert props["Tem Departamento AI"]["rich_text"][0]["text"]["content"].startswith("Sim")
+    assert props["Pessoas Departamento AI"]["rich_text"][0]["text"]["content"] == "Carlos Silva (DataAI)"
+    assert "•" in props["Outreach"]["rich_text"][0]["text"]["content"]
 
 
 def test_add_row_with_error_status():
