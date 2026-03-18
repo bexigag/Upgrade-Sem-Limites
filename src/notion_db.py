@@ -9,11 +9,12 @@ SCHEMA = {
     "Potencial Cliente": {"rich_text": {}},
     "Usa IA": {"rich_text": {}},
     "Vai Usar IA": {"rich_text": {}},
-    "Inovação": {"rich_text": {}},
-    "Estratégia Digital": {"rich_text": {}},
+    "Visão Estratégica": {"rich_text": {}},
     "Tecnologias Mencionadas": {"multi_select": {"options": []}},
     "Principais Desafios": {"rich_text": {}},
-    "Resumo Estratégico": {"rich_text": {}},
+    "Tem Departamento AI": {"rich_text": {}},
+    "Pessoas Departamento AI": {"rich_text": {}},
+    "Outreach": {"rich_text": {}},
     "Apontamentos": {"rich_text": {}},
     "Status": {
         "select": {
@@ -24,6 +25,7 @@ SCHEMA = {
             ]
         }
     },
+    "Nome da Empresa": {"rich_text": {}},
 }
 
 
